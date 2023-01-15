@@ -4,15 +4,21 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"time"
 
+	"github.com/sanposhiho/mini-kube-scheduler/minisched/waitingpod"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 )
 
-type NodeNumber struct{}
+type NodeNumber struct {
+	h waitingpod.Handle
+}
 
 var _ framework.ScorePlugin = &NodeNumber{}
+var _ framework.PreScorePlugin = &NodeNumber{}
+var _ framework.PermitPlugin = &NodeNumber{}
 
 const Name = "NodeNumber"
 const preScoreStateKey = "PreScore" + Name
@@ -69,6 +75,21 @@ func (pl *NodeNumber) ScoreExtensions() framework.ScoreExtensions {
 	return nil
 }
 
-func New(_ runtime.Object, _ framework.Handle) (framework.Plugin, error) {
-	return &NodeNumber{}, nil
+func (pl *NodeNumber) Permit(ctx context.Context, state *framework.CycleState, p *v1.Pod, nodeName string) (*framework.Status, time.Duration) {
+	nodeNameLastChar := nodeName[len(nodeName)-1:]
+	nodenum, err := strconv.Atoi(nodeNameLastChar)
+	if err != nil {
+		return nil, 0
+	}
+	time.AfterFunc(time.Duration(nodenum)*time.Second, func() {
+		wp := pl.h.GetWaitingPod(p.GetUID())
+		wp.Allow(pl.Name())
+	})
+
+	timeout := time.Duration(10) * time.Second
+	return framework.NewStatus(framework.Wait, ""), timeout
+}
+
+func New(_ runtime.Object, h waitingpod.Handle) (framework.Plugin, error) {
+	return &NodeNumber{h: h}, nil
 }

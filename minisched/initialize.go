@@ -5,6 +5,8 @@ import (
 
 	"github.com/sanposhiho/mini-kube-scheduler/minisched/plugins/score/nodenumber"
 	"github.com/sanposhiho/mini-kube-scheduler/minisched/queue"
+	"github.com/sanposhiho/mini-kube-scheduler/minisched/waitingpod"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
@@ -16,9 +18,12 @@ type Scheduler struct {
 
 	client clientset.Interface
 
+	waitingPods map[types.UID]*waitingpod.WaitingPod
+
 	filterPlugins   []framework.FilterPlugin
 	preScorePlugins []framework.PreScorePlugin
 	scorePlugins    []framework.ScorePlugin
+	permitPlugins   []framework.PermitPlugin
 }
 
 func New(
@@ -28,32 +33,39 @@ func New(
 	sched := &Scheduler{
 		SchedulingQueue: queue.New(),
 		client:          client,
+		waitingPods:     map[types.UID]*waitingpod.WaitingPod{},
 	}
 
-	filterP, err := createFilterPlugins()
+	filterP, err := createFilterPlugins(sched)
 	if err != nil {
 		return nil, fmt.Errorf("create filter plugins: %w", err)
 	}
 	sched.filterPlugins = filterP
 
-	preScoreP, err := createPreScorePlugins()
+	preScoreP, err := createPreScorePlugins(sched)
 	if err != nil {
 		return nil, fmt.Errorf("create pre score plugins: %w", err)
 	}
 	sched.preScorePlugins = preScoreP
 
-	scoreP, err := createScorePlugins()
+	scoreP, err := createScorePlugins(sched)
 	if err != nil {
 		return nil, fmt.Errorf("create score plugins: %w", err)
 	}
 	sched.scorePlugins = scoreP
+
+	permitP, err := createPermitPlugins(sched)
+	if err != nil {
+		return nil, fmt.Errorf("create permit plugins: %w", err)
+	}
+	sched.permitPlugins = permitP
 
 	addAllEventHandlers(sched, informerFactory)
 
 	return sched, nil
 }
 
-func createFilterPlugins() ([]framework.FilterPlugin, error) {
+func createFilterPlugins(h waitingpod.Handle) ([]framework.FilterPlugin, error) {
 	nodeunschedulableplugin, err := createNodeUnschedulablePlugin()
 	if err != nil {
 		return nil, fmt.Errorf("create nodeunschedulable plugin: %w", err)
@@ -66,8 +78,8 @@ func createFilterPlugins() ([]framework.FilterPlugin, error) {
 	return filterPlugins, nil
 }
 
-func createPreScorePlugins() ([]framework.PreScorePlugin, error) {
-	nodenumberplugin, err := createNodeNumberPlugin()
+func createPreScorePlugins(h waitingpod.Handle) ([]framework.PreScorePlugin, error) {
+	nodenumberplugin, err := createNodeNumberPlugin(h)
 	if err != nil {
 		return nil, fmt.Errorf("create nodenumber plugin: %w", err)
 	}
@@ -79,8 +91,8 @@ func createPreScorePlugins() ([]framework.PreScorePlugin, error) {
 	return preScorePlugins, nil
 }
 
-func createScorePlugins() ([]framework.ScorePlugin, error) {
-	nodenumberplugin, err := createNodeNumberPlugin()
+func createScorePlugins(h waitingpod.Handle) ([]framework.ScorePlugin, error) {
+	nodenumberplugin, err := createNodeNumberPlugin(h)
 	if err != nil {
 		return nil, fmt.Errorf("create nodenumber plugin: %w", err)
 	}
@@ -90,6 +102,18 @@ func createScorePlugins() ([]framework.ScorePlugin, error) {
 	}
 
 	return scorePlugins, nil
+}
+
+func createPermitPlugins(h waitingpod.Handle) ([]framework.PermitPlugin, error) {
+	nodenumberplugin, err := createNodeNumberPlugin(h)
+	if err != nil {
+		return nil, fmt.Errorf("create nodenumber plugin: %w", err)
+	}
+
+	permitPlugins := []framework.PermitPlugin{
+		nodenumberplugin.(framework.PermitPlugin),
+	}
+	return permitPlugins, nil
 }
 
 var (
@@ -107,12 +131,12 @@ func createNodeUnschedulablePlugin() (framework.Plugin, error) {
 	return p, err
 }
 
-func createNodeNumberPlugin() (framework.Plugin, error) {
+func createNodeNumberPlugin(h waitingpod.Handle) (framework.Plugin, error) {
 	if nodenumberplugin != nil {
 		return nodenumberplugin, nil
 	}
 
-	p, err := nodenumber.New(nil, nil)
+	p, err := nodenumber.New(nil, h)
 	nodenumberplugin = p
 	return p, err
 }
