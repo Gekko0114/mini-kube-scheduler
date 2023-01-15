@@ -22,7 +22,9 @@ func (sched *Scheduler) Run(ctx context.Context) {
 func (sched *Scheduler) scheduleOne(ctx context.Context) {
 	klog.Info("minischeduler: Try to get pod from queue....")
 	pod := sched.SchedulingQueue.NextPod()
-	klog.Info("minischeduler: Start schedule(" + pod.Name + ")")
+	klog.Info("minischeduler: Start schedule: " + pod.Name)
+
+	state := framework.NewCycleState()
 
 	// get nodes
 	nodes, err := sched.client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
@@ -43,8 +45,16 @@ func (sched *Scheduler) scheduleOne(ctx context.Context) {
 	klog.Info("minischeduler: filter plugins successfully")
 	klog.Info("minischeduler: feasible nodes: ", feasibleNodes)
 
+	// prescore
+	status := sched.RunPreScorePlugins(ctx, state, pod, feasibleNodes)
+	if !status.IsSuccess() {
+		klog.Error(status.AsError())
+		return
+	}
+	klog.Info("minischeduler: ran pre score plugins successfully")
+
 	// score
-	score, status := sched.RunScorePlugins(ctx, nil, pod, feasibleNodes)
+	score, status := sched.RunScorePlugins(ctx, state, pod, feasibleNodes)
 	if !status.IsSuccess() {
 		klog.Error(status.AsError())
 		return
@@ -113,6 +123,16 @@ func (sched *Scheduler) Bind(ctx context.Context, p *v1.Pod, nodeName string) er
 	err := sched.client.CoreV1().Pods(binding.Namespace).Bind(ctx, binding, metav1.CreateOptions{})
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+func (sched *Scheduler) RunPreScorePlugins(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodes []*v1.Node) *framework.Status {
+	for _, pl := range sched.preScorePlugins {
+		status := pl.PreScore(ctx, state, pod, nodes)
+		if !status.IsSuccess() {
+			return status
+		}
 	}
 	return nil
 }

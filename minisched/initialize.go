@@ -16,8 +16,9 @@ type Scheduler struct {
 
 	client clientset.Interface
 
-	filterPlugins []framework.FilterPlugin
-	scorePlugins  []framework.ScorePlugin
+	filterPlugins   []framework.FilterPlugin
+	preScorePlugins []framework.PreScorePlugin
+	scorePlugins    []framework.ScorePlugin
 }
 
 func New(
@@ -34,6 +35,12 @@ func New(
 		return nil, fmt.Errorf("create filter plugins: %w", err)
 	}
 	sched.filterPlugins = filterP
+
+	preScoreP, err := createPreScorePlugins()
+	if err != nil {
+		return nil, fmt.Errorf("create pre score plugins: %w", err)
+	}
+	sched.preScorePlugins = preScoreP
 
 	scoreP, err := createScorePlugins()
 	if err != nil {
@@ -57,6 +64,19 @@ func createFilterPlugins() ([]framework.FilterPlugin, error) {
 	}
 
 	return filterPlugins, nil
+}
+
+func createPreScorePlugins() ([]framework.PreScorePlugin, error) {
+	nodenumberplugin, err := createNodeNumberPlugin()
+	if err != nil {
+		return nil, fmt.Errorf("create nodenumber plugin: %w", err)
+	}
+
+	preScorePlugins := []framework.PreScorePlugin{
+		nodenumberplugin.(framework.PreScorePlugin),
+	}
+
+	return preScorePlugins, nil
 }
 
 func createScorePlugins() ([]framework.ScorePlugin, error) {
