@@ -3,6 +3,7 @@ package minisched
 import (
 	"fmt"
 
+	"github.com/sanposhiho/mini-kube-scheduler/minisched/plugins/score/nodenumber"
 	"github.com/sanposhiho/mini-kube-scheduler/minisched/queue"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
@@ -16,22 +17,29 @@ type Scheduler struct {
 	client clientset.Interface
 
 	filterPlugins []framework.FilterPlugin
+	scorePlugins  []framework.ScorePlugin
 }
 
 func New(
 	client clientset.Interface,
 	informerFactory informers.SharedInformerFactory,
 ) (*Scheduler, error) {
+	sched := &Scheduler{
+		SchedulingQueue: queue.New(),
+		client:          client,
+	}
+
 	filterP, err := createFilterPlugins()
 	if err != nil {
 		return nil, fmt.Errorf("create filter plugins: %w", err)
 	}
+	sched.filterPlugins = filterP
 
-	sched := &Scheduler{
-		SchedulingQueue: queue.New(),
-		client:          client,
-		filterPlugins:   filterP,
+	scoreP, err := createScorePlugins()
+	if err != nil {
+		return nil, fmt.Errorf("create score plugins: %w", err)
 	}
+	sched.scorePlugins = scoreP
 
 	addAllEventHandlers(sched, informerFactory)
 
@@ -51,8 +59,22 @@ func createFilterPlugins() ([]framework.FilterPlugin, error) {
 	return filterPlugins, nil
 }
 
+func createScorePlugins() ([]framework.ScorePlugin, error) {
+	nodenumberplugin, err := createNodeNumberPlugin()
+	if err != nil {
+		return nil, fmt.Errorf("create nodenumber plugin: %w", err)
+	}
+
+	scorePlugins := []framework.ScorePlugin{
+		nodenumberplugin.(framework.ScorePlugin),
+	}
+
+	return scorePlugins, nil
+}
+
 var (
 	nodeunschedulableplugin framework.Plugin
+	nodenumberplugin        framework.Plugin
 )
 
 func createNodeUnschedulablePlugin() (framework.Plugin, error) {
@@ -62,5 +84,15 @@ func createNodeUnschedulablePlugin() (framework.Plugin, error) {
 
 	p, err := nodeunschedulable.New(nil, nil)
 	nodeunschedulableplugin = p
+	return p, err
+}
+
+func createNodeNumberPlugin() (framework.Plugin, error) {
+	if nodenumberplugin != nil {
+		return nodenumberplugin, nil
+	}
+
+	p, err := nodenumber.New(nil, nil)
+	nodenumberplugin = p
 	return p, err
 }

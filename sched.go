@@ -71,14 +71,11 @@ func scenario(client clientset.Interface) error {
 	ctx := context.Background()
 
 	// create node0 ~ node9, all nodes are unschedulable
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 12; i++ {
 		suffix := strconv.Itoa(i)
 		_, err := client.CoreV1().Nodes().Create(ctx, &v1.Node{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "node" + suffix,
-			},
-			Spec: v1.NodeSpec{
-				Unschedulable: true,
 			},
 		}, metav1.CreateOptions{})
 		if err != nil {
@@ -86,20 +83,9 @@ func scenario(client clientset.Interface) error {
 		}
 	}
 
-	// node10 is not unschedulable
-	_, err := client.CoreV1().Nodes().Create(ctx, &v1.Node{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "node10",
-		},
-		Spec: v1.NodeSpec{},
-	}, metav1.CreateOptions{})
-	if err != nil {
-		return fmt.Errorf("create node: %w", err)
-	}
-
 	klog.Info("scenario: all nodes created")
 
-	_, err = client.CoreV1().Pods("default").Create(ctx, &v1.Pod{
+	_, err := client.CoreV1().Pods("default").Create(ctx, &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "pod1"},
 		Spec: v1.PodSpec{
 			Containers: []v1.Container{
@@ -116,6 +102,23 @@ func scenario(client clientset.Interface) error {
 
 	klog.Info("scenario: pod1 created")
 
+	_, err = client.CoreV1().Pods("default").Create(ctx, &v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "pod3"},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
+				{
+					Name:  "container1",
+					Image: "k8s.gcr.io/pause:3.5",
+				},
+			},
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("create pod: %w", err)
+	}
+
+	klog.Info("scenario: pod3 created")
+
 	// wait to schedule
 	time.Sleep(4 * time.Second)
 
@@ -125,6 +128,13 @@ func scenario(client clientset.Interface) error {
 	}
 
 	klog.Info("scenario: pod1 is bound to " + pod.Spec.NodeName)
+
+	pod, err = client.CoreV1().Pods("default").Get(ctx, "pod3", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get pod: %w", err)
+	}
+
+	klog.Info("scenario: pod3 is bound to " + pod.Spec.NodeName)
 
 	return nil
 }
