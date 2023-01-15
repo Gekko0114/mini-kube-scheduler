@@ -5,16 +5,15 @@ import (
 	"math/rand"
 	"time"
 
+	"k8s.io/kubernetes/pkg/scheduler/framework"
+
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
-
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
 
 func (sched *Scheduler) Run(ctx context.Context) {
 	wait.UntilWithContext(ctx, sched.scheduleOne, 0)
@@ -32,9 +31,17 @@ func (sched *Scheduler) scheduleOne(ctx context.Context) {
 		return
 	}
 	klog.Info("minischeduler: Got Nodes successfully")
+	klog.Info("minischeduler: got nodes: ", nodes)
 
+	// filter
+	feasibleNodes, err := sched.RunFilterPlugins(ctx, nil, pod, nodes.Items)
+	if err != nil {
+		klog.Error(err)
+		return
+	}
 	// select node randomly
-	selectedNode := nodes.Items[rand.Intn(len(nodes.Items))]
+	rand.Seed(time.Now().UnixNano())
+	selectedNode := feasibleNodes[rand.Intn(len(feasibleNodes))]
 
 	if err := sched.Bind(ctx, pod, selectedNode.Name); err != nil {
 		klog.Error(err)
@@ -42,6 +49,43 @@ func (sched *Scheduler) scheduleOne(ctx context.Context) {
 	}
 
 	klog.Info("minischeduler: Bind Pod successfully")
+}
+
+func (sched *Scheduler) RunFilterPlugins(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodes []v1.Node) ([]*v1.Node, error) {
+	feasibleNodes := make([]*v1.Node, 0, len(nodes))
+
+	diagnosis := framework.Diagnosis{
+		NodeToStatusMap:      make(framework.NodeToStatusMap),
+		UnschedulablePlugins: sets.NewString(),
+	}
+
+	// TODO: consider about nominated pod
+	for _, n := range nodes {
+		n := n
+		nodeInfo := framework.NewNodeInfo()
+		nodeInfo.SetNode(&n)
+
+		status := framework.NewStatus(framework.Success)
+		for _, pl := range sched.filterPlugins {
+			status = pl.Filter(ctx, state, pod, nodeInfo)
+			if !status.IsSuccess() {
+				status.SetFailedPlugin(pl.Name())
+				diagnosis.UnschedulablePlugins.Insert(status.FailedPlugin())
+				break
+			}
+		}
+		if status.IsSuccess() {
+			feasibleNodes = append(feasibleNodes, nodeInfo.Node())
+		}
+	}
+
+	if len(feasibleNodes) == 0 {
+		return nil, &framework.FitError{
+			Pod:       pod,
+			Diagnosis: diagnosis,
+		}
+	}
+	return feasibleNodes, nil
 }
 
 func (sched *Scheduler) Bind(ctx context.Context, p *v1.Pod, nodeName string) error {
