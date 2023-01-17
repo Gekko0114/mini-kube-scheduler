@@ -33,15 +33,17 @@ func (sched *Scheduler) scheduleOne(ctx context.Context) {
 	nodes, err := sched.client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		klog.Error(err)
+		sched.ErrorFunc(pod, err)
 		return
 	}
 	klog.Info("minischeduler: Get Nodes successfully")
 	klog.Info("minischeduler: nodes: ", nodes)
 
 	// filter
-	feasibleNodes, err := sched.RunFilterPlugins(ctx, nil, pod, nodes.Items)
+	feasibleNodes, err := sched.RunFilterPlugins(ctx, state, pod, nodes.Items)
 	if err != nil {
 		klog.Error(err)
+		sched.ErrorFunc(pod, err)
 		return
 	}
 
@@ -52,6 +54,7 @@ func (sched *Scheduler) scheduleOne(ctx context.Context) {
 	status := sched.RunPreScorePlugins(ctx, state, pod, feasibleNodes)
 	if !status.IsSuccess() {
 		klog.Error(status.AsError())
+		sched.ErrorFunc(pod, err)
 		return
 	}
 	klog.Info("minischeduler: ran pre score plugins successfully")
@@ -60,6 +63,7 @@ func (sched *Scheduler) scheduleOne(ctx context.Context) {
 	score, status := sched.RunScorePlugins(ctx, state, pod, feasibleNodes)
 	if !status.IsSuccess() {
 		klog.Error(status.AsError())
+		sched.ErrorFunc(pod, err)
 		return
 	}
 
@@ -69,6 +73,7 @@ func (sched *Scheduler) scheduleOne(ctx context.Context) {
 	nodename, err := sched.selectHost(score)
 	if err != nil {
 		klog.Error(err)
+		sched.ErrorFunc(pod, err)
 		return
 	}
 
@@ -77,6 +82,7 @@ func (sched *Scheduler) scheduleOne(ctx context.Context) {
 	status = sched.RunPermitPlugins(ctx, state, pod, nodename)
 	if status.Code() != framework.Wait && !status.IsSuccess() {
 		klog.Error(status.AsError())
+		sched.ErrorFunc(pod, err)
 		return
 	}
 
@@ -86,11 +92,13 @@ func (sched *Scheduler) scheduleOne(ctx context.Context) {
 		status := sched.WaitOnPermit(ctx, pod)
 		if !status.IsSuccess() {
 			klog.Error(status.AsError())
+			sched.ErrorFunc(pod, err)
 			return
 		}
 
 		if err := sched.Bind(ctx, pod, nodename); err != nil {
 			klog.Error(err)
+			sched.ErrorFunc(pod, err)
 			return
 		}
 		klog.Info("minischeduler: Bind Pod successfully")
@@ -239,6 +247,21 @@ func (sched *Scheduler) WaitOnPermit(ctx context.Context, pod *v1.Pod) *framewor
 		return framework.AsStatus(fmt.Errorf("waiting on permit for pod: %w", err)).WithFailedPlugin(s.FailedPlugin())
 	}
 	return nil
+}
+
+func (sched *Scheduler) ErrorFunc(pod *v1.Pod, err error) {
+	podInfo := &framework.QueuedPodInfo{
+		PodInfo: framework.NewPodInfo(pod),
+	}
+	if fitError, ok := err.(*framework.FitError); ok {
+		podInfo.UnschedulablePlugins = fitError.Diagnosis.UnschedulablePlugins
+		klog.V(2).InfoS("Unable to schedule pod; no fit; waiting", "pod", klog.KObj(pod), "err", err)
+	} else {
+		klog.ErrorS(err, "Error scheduling pod; retrying", "pod", klog.KObj(pod))
+	}
+	if err := sched.SchedulingQueue.AddUnschedulable(podInfo); err != nil {
+		klog.ErrorS(err, "Error occurred")
+	}
 }
 
 func (sched *Scheduler) GetWaitingPod(uid types.UID) *waitingpod.WaitingPod {
