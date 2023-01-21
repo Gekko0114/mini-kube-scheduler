@@ -75,10 +75,10 @@ func scenario(client clientset.Interface) error {
 		suffix := strconv.Itoa(i)
 		_, err := client.CoreV1().Nodes().Create(ctx, &v1.Node{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "node" + suffix,
+				Name: "nodeunschedulable" + suffix,
 			},
 			Spec: v1.NodeSpec{
-				Unschedulable: true,
+				Unschedulable: false,
 			},
 		}, metav1.CreateOptions{})
 		if err != nil {
@@ -114,7 +114,7 @@ func scenario(client clientset.Interface) error {
 	}
 
 	if len(pod1.Spec.NodeName) != 0 {
-		klog.Info("pod is bound to" + pod1.Spec.NodeName)
+		klog.Info("pod1 is bound to " + pod1.Spec.NodeName)
 	} else {
 		klog.Info("pod1 has not been bound yet")
 	}
@@ -139,7 +139,7 @@ func scenario(client clientset.Interface) error {
 		return fmt.Errorf("get pod: %w", err)
 	}
 	if len(pod1.Spec.NodeName) != 0 {
-		klog.Info("pod is bound to " + pod1.Spec.NodeName)
+		klog.Info("pod1 is bound to " + pod1.Spec.NodeName)
 	} else {
 		klog.Info("pod1 has not been bound yet")
 	}

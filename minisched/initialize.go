@@ -3,6 +3,7 @@ package minisched
 import (
 	"fmt"
 
+	"github.com/sanposhiho/mini-kube-scheduler/minisched/plugins/filter/nodenameunschedulable"
 	"github.com/sanposhiho/mini-kube-scheduler/minisched/plugins/score/nodenumber"
 	"github.com/sanposhiho/mini-kube-scheduler/minisched/queue"
 	"github.com/sanposhiho/mini-kube-scheduler/minisched/waitingpod"
@@ -62,7 +63,7 @@ func New(
 
 	events, err := eventsToRegister(sched)
 	if err != nil {
-		return nil, fmt.Errorf("create gvks: %w")
+		return nil, fmt.Errorf("create gvks: %w", err)
 	}
 
 	sched.SchedulingQueue = queue.New(events)
@@ -81,6 +82,13 @@ func createFilterPlugins(h waitingpod.Handle) ([]framework.FilterPlugin, error) 
 	filterPlugins := []framework.FilterPlugin{
 		nodeunschedulableplugin.(framework.FilterPlugin),
 	}
+
+	nodenameunschedulableplugin, err := createNodeNameUnschedulablePlugin()
+	if err != nil {
+		return nil, fmt.Errorf("create nodenameunschedulableplugin: %w", err)
+	}
+
+	filterPlugins = append(filterPlugins, nodenameunschedulableplugin.(framework.FilterPlugin))
 
 	return filterPlugins, nil
 }
@@ -132,12 +140,18 @@ func eventsToRegister(h waitingpod.Handle) (map[framework.ClusterEvent]sets.Stri
 	if err != nil {
 		return nil, fmt.Errorf("create node number plugin: %w", err)
 	}
+	nNodeNameUnschedulablePlugin, err := createNodeNameUnschedulablePlugin()
+	if err != nil {
+		return nil, fmt.Errorf("create node name unschedulable plugin: %w", err)
+	}
 
 	clusterEventMap := make(map[framework.ClusterEvent]sets.String)
 	nUnschedulablePluginEvents := nUnschedulablePlugin.(framework.EnqueueExtensions).EventsToRegister()
 	registerClusterEvents(nUnschedulablePlugin.Name(), clusterEventMap, nUnschedulablePluginEvents)
 	nNumberPluginEvents := nNumberPlugin.(framework.EnqueueExtensions).EventsToRegister()
 	registerClusterEvents(nNumberPlugin.Name(), clusterEventMap, nNumberPluginEvents)
+	nNodeNameUnschedulablePluginEvents := nNodeNameUnschedulablePlugin.(framework.EnqueueExtensions).EventsToRegister()
+	registerClusterEvents(nNodeNameUnschedulablePlugin.Name(), clusterEventMap, nNodeNameUnschedulablePluginEvents)
 
 	return clusterEventMap, nil
 }
@@ -165,8 +179,9 @@ func unionedGVK(m map[framework.ClusterEvent]sets.String) map[framework.GVK]fram
 }
 
 var (
-	nodeunschedulableplugin framework.Plugin
-	nodenumberplugin        framework.Plugin
+	nodeunschedulableplugin     framework.Plugin
+	nodenumberplugin            framework.Plugin
+	nodenameunschedulableplugin framework.Plugin
 )
 
 func createNodeUnschedulablePlugin() (framework.Plugin, error) {
@@ -176,6 +191,15 @@ func createNodeUnschedulablePlugin() (framework.Plugin, error) {
 
 	p, err := nodeunschedulable.New(nil, nil)
 	nodeunschedulableplugin = p
+	return p, err
+}
+
+func createNodeNameUnschedulablePlugin() (framework.Plugin, error) {
+	if nodenameunschedulableplugin != nil {
+		return nodenameunschedulableplugin, nil
+	}
+	p, err := nodenameunschedulable.New(nil, nil)
+	nodenameunschedulableplugin = p
 	return p, err
 }
 
