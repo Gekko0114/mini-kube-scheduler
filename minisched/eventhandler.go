@@ -6,9 +6,11 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 )
 
+// 特定のevent(node関連の変化など)が発生したら、特定の原因でUnschedulableになったpodを復活させる
 func addAllEventHandlers(
 	sched *Scheduler,
 	informerFactory informers.SharedInformerFactory,
@@ -36,6 +38,8 @@ func addAllEventHandlers(
 		funcs := cache.ResourceEventHandlerFuncs{}
 		if at&framework.Add != 0 {
 			evt := framework.ClusterEvent{Resource: gvk, ActionType: framework.Add, Label: fmt.Sprintf("%vAdd", shortGVK)}
+			klog.Info("buildEvtResHandler")
+			klog.Info(evt)
 			funcs.AddFunc = func(_ interface{}) {
 				sched.SchedulingQueue.MoveAllToActiveOrBackoffQueue(evt)
 			}
@@ -58,9 +62,12 @@ func addAllEventHandlers(
 	for gvk, at := range gvkMap {
 		switch gvk {
 		case framework.Node:
+			// Node関連のeventが発生した場合に、buildEvtResHandlerが呼ばれる?
 			informerFactory.Core().V1().Nodes().Informer().AddEventHandler(
 				buildEvtResHandler(at, framework.Node, "Node"),
 			)
+		default:
+			klog.Info("We don't create informer for " + gvk)
 		}
 	}
 }

@@ -61,6 +61,7 @@ func New(
 	}
 	sched.permitPlugins = permitP
 
+	// eventsには、各event(node add等)をkeyにして、Plugin名のsetが入っている。
 	events, err := eventsToRegister(sched)
 	if err != nil {
 		return nil, fmt.Errorf("create gvks: %w", err)
@@ -146,10 +147,18 @@ func eventsToRegister(h waitingpod.Handle) (map[framework.ClusterEvent]sets.Stri
 	}
 
 	clusterEventMap := make(map[framework.ClusterEvent]sets.String)
+
+	// 各pluginに対応するeventを取得して、それらをclusterEventMapに登録する。その繰り返し
+
+	// node Add / node taint update
 	nUnschedulablePluginEvents := nUnschedulablePlugin.(framework.EnqueueExtensions).EventsToRegister()
 	registerClusterEvents(nUnschedulablePlugin.Name(), clusterEventMap, nUnschedulablePluginEvents)
+
+	// node Add
 	nNumberPluginEvents := nNumberPlugin.(framework.EnqueueExtensions).EventsToRegister()
 	registerClusterEvents(nNumberPlugin.Name(), clusterEventMap, nNumberPluginEvents)
+
+	// node Add
 	nNodeNameUnschedulablePluginEvents := nNodeNameUnschedulablePlugin.(framework.EnqueueExtensions).EventsToRegister()
 	registerClusterEvents(nNodeNameUnschedulablePlugin.Name(), clusterEventMap, nNodeNameUnschedulablePluginEvents)
 
@@ -157,6 +166,7 @@ func eventsToRegister(h waitingpod.Handle) (map[framework.ClusterEvent]sets.Stri
 }
 
 func registerClusterEvents(name string, eventToPlugins map[framework.ClusterEvent]sets.String, evts []framework.ClusterEvent) {
+	// 各event(node add等)をkeyにして、Plugin名のsetが作られる。eventが発生したら、どのpluginを再スケジュールするかを判断する。
 	for _, evt := range evts {
 		if eventToPlugins[evt] == nil {
 			eventToPlugins[evt] = sets.NewString(name)

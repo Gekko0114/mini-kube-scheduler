@@ -59,6 +59,7 @@ func (s *SchedulingQueue) movePodsToActiveOrBackoffQueue(podInfoList []*framewor
 			continue
 		}
 
+		// eventと同じ理由の場合は、Active/BackoffQueueに送られる。
 		if isPodBackingoff(pInfo) {
 			s.podBackoffQ = append(s.podBackoffQ, pInfo)
 		} else {
