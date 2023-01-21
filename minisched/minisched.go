@@ -142,19 +142,6 @@ func (sched *Scheduler) RunFilterPlugins(ctx context.Context, state *framework.C
 	return feasibleNodes, nil
 }
 
-func (sched *Scheduler) Bind(ctx context.Context, p *v1.Pod, nodeName string) error {
-	binding := &v1.Binding{
-		ObjectMeta: metav1.ObjectMeta{Namespace: p.Namespace, Name: p.Name, UID: p.UID},
-		Target:     v1.ObjectReference{Kind: "Node", Name: nodeName},
-	}
-
-	err := sched.client.CoreV1().Pods(binding.Namespace).Bind(ctx, binding, metav1.CreateOptions{})
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 func (sched *Scheduler) RunPreScorePlugins(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodes []*v1.Node) *framework.Status {
 	for _, pl := range sched.preScorePlugins {
 		status := pl.PreScore(ctx, state, pod, nodes)
@@ -177,6 +164,13 @@ func (sched *Scheduler) RunScorePlugins(ctx context.Context, state *framework.Cy
 			scoresMap[pl.Name()][index] = framework.NodeScore{
 				Name:  n.Name,
 				Score: score,
+			}
+
+			if pl.ScoreExtensions() != nil {
+				status := pl.ScoreExtensions().NormalizeScore(ctx, state, pod, scoresMap[pl.Name()])
+				if !status.IsSuccess() {
+					return nil, status
+				}
 			}
 		}
 	}
@@ -245,6 +239,19 @@ func (sched *Scheduler) WaitOnPermit(ctx context.Context, pod *v1.Pod) *framewor
 		err := s.AsError()
 		klog.ErrorS(err, "Failed to wait on permit for pod", "pod", klog.KObj(pod))
 		return framework.AsStatus(fmt.Errorf("waiting on permit for pod: %w", err)).WithFailedPlugin(s.FailedPlugin())
+	}
+	return nil
+}
+
+func (sched *Scheduler) Bind(ctx context.Context, p *v1.Pod, nodeName string) error {
+	binding := &v1.Binding{
+		ObjectMeta: metav1.ObjectMeta{Namespace: p.Namespace, Name: p.Name, UID: p.UID},
+		Target:     v1.ObjectReference{Kind: "Node", Name: nodeName},
+	}
+
+	err := sched.client.CoreV1().Pods(binding.Namespace).Bind(ctx, binding, metav1.CreateOptions{})
+	if err != nil {
+		return err
 	}
 	return nil
 }

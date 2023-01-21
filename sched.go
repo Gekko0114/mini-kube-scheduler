@@ -114,7 +114,32 @@ func scenario(client clientset.Interface) error {
 	}
 
 	if len(pod1.Spec.NodeName) != 0 {
-		return fmt.Errorf("pod1 should not be bound yet")
+		klog.Info("pod is bound to" + pod1.Spec.NodeName)
+	} else {
+		klog.Info("pod1 has not been bound yet")
+	}
+
+	_, err = client.CoreV1().Nodes().Create(ctx, &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node10",
+		},
+		Spec: v1.NodeSpec{
+			Unschedulable: false,
+		},
+	}, metav1.CreateOptions{})
+	if err != nil {
+		return fmt.Errorf("create node: %w", err)
+	}
+	klog.Info("node10 is created")
+
+	// wait to schedule
+	time.Sleep(5 * time.Second)
+	pod1, err = client.CoreV1().Pods("default").Get(ctx, "pod1", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get pod: %w", err)
+	}
+	if len(pod1.Spec.NodeName) != 0 {
+		klog.Info("pod is bound to " + pod1.Spec.NodeName)
 	} else {
 		klog.Info("pod1 has not been bound yet")
 	}

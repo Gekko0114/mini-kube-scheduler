@@ -11,41 +11,46 @@ import (
 )
 
 type SchedulingQueue struct {
-	lock            sync.RWMutex
+	lock            *sync.Cond
 	activeQ         []*framework.QueuedPodInfo
 	podBackoffQ     []*framework.QueuedPodInfo
 	unschedulableQ  map[string]*framework.QueuedPodInfo
 	clusterEventMap map[framework.ClusterEvent]sets.String
 }
 
-func New() *SchedulingQueue {
+func New(clusterEventMap map[framework.ClusterEvent]sets.String) *SchedulingQueue {
 	return &SchedulingQueue{
-		activeQ:        []*framework.QueuedPodInfo{},
-		podBackoffQ:    []*framework.QueuedPodInfo{},
-		unschedulableQ: map[string]*framework.QueuedPodInfo{},
+		activeQ:         []*framework.QueuedPodInfo{},
+		podBackoffQ:     []*framework.QueuedPodInfo{},
+		unschedulableQ:  map[string]*framework.QueuedPodInfo{},
+		clusterEventMap: clusterEventMap,
+		lock:            sync.NewCond(&sync.Mutex{}),
 	}
 }
 
 func (s *SchedulingQueue) Add(pod *v1.Pod) error {
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.lock.L.Lock()
+	defer s.lock.L.Unlock()
 
 	podInfo := s.newQueuedPodInfo(pod)
 
 	s.activeQ = append(s.activeQ, podInfo)
+	s.lock.Signal()
 	return nil
 }
 
 type preEnqueueCheck func(pod *v1.Pod) bool
 
 func (s *SchedulingQueue) MoveAllToActiveOrBackoffQueue(event framework.ClusterEvent) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.lock.L.Lock()
+	defer s.lock.L.Unlock()
 	unschedulablePods := make([]*framework.QueuedPodInfo, 0, len(s.unschedulableQ))
 	for _, pInfo := range s.unschedulableQ {
 		unschedulablePods = append(unschedulablePods, pInfo)
 	}
 	s.movePodsToActiveOrBackoffQueue(unschedulablePods, event)
+
+	s.lock.Signal()
 }
 
 func (s *SchedulingQueue) movePodsToActiveOrBackoffQueue(podInfoList []*framework.QueuedPodInfo, event framework.ClusterEvent) {
@@ -65,17 +70,20 @@ func (s *SchedulingQueue) movePodsToActiveOrBackoffQueue(podInfoList []*framewor
 
 func (s *SchedulingQueue) NextPod() *v1.Pod {
 	// wait
+	s.lock.L.Lock()
 	for len(s.activeQ) == 0 {
+		s.lock.Wait()
 	}
 
 	p := s.activeQ[0]
 	s.activeQ = s.activeQ[1:]
+	s.lock.L.Unlock()
 	return p.Pod
 }
 
 func (s *SchedulingQueue) AddUnschedulable(pInfo *framework.QueuedPodInfo) error {
-	s.lock.Lock()
-	defer s.lock.Unlock()
+	s.lock.L.Lock()
+	defer s.lock.L.Unlock()
 
 	pInfo.Timestamp = time.Now()
 	s.unschedulableQ[keyFunc(pInfo)] = pInfo
