@@ -8,7 +8,7 @@ build:
 
 .PHONY: start
 start: build
-	./hack/start_simulator.sh
+	export PATH="/Users/moriya/github_repo/kubernetes/third_party/etcd:${PATH}" && ./hack/start_simulator.sh
 
 # re-generate openapi file for running api-server
 .PHONY: openapi

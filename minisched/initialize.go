@@ -5,6 +5,7 @@ import (
 
 	"github.com/sanposhiho/mini-kube-scheduler/minisched/plugins/filter/nodenameunschedulable"
 	"github.com/sanposhiho/mini-kube-scheduler/minisched/plugins/score/nodenumber"
+	"github.com/sanposhiho/mini-kube-scheduler/minisched/plugins/score/tainttoleration"
 	"github.com/sanposhiho/mini-kube-scheduler/minisched/queue"
 	"github.com/sanposhiho/mini-kube-scheduler/minisched/waitingpod"
 	"k8s.io/apimachinery/pkg/types"
@@ -104,6 +105,12 @@ func createPreScorePlugins(h waitingpod.Handle) ([]framework.PreScorePlugin, err
 		nodenumberplugin.(framework.PreScorePlugin),
 	}
 
+	tainttolerationplugin, err := createTaintTolerationPlugin(h)
+	if err != nil {
+		return nil, fmt.Errorf("create tainttoleration plugin: %w", err)
+	}
+	preScorePlugins = append(preScorePlugins, tainttolerationplugin.(framework.PreScorePlugin))
+
 	return preScorePlugins, nil
 }
 
@@ -116,6 +123,12 @@ func createScorePlugins(h waitingpod.Handle) ([]framework.ScorePlugin, error) {
 	scorePlugins := []framework.ScorePlugin{
 		nodenumberplugin.(framework.ScorePlugin),
 	}
+
+	tainttolerationplugin, err := createTaintTolerationPlugin(h)
+	if err != nil {
+		return nil, fmt.Errorf("create tainttoleration plugin: %w", err)
+	}
+	scorePlugins = append(scorePlugins, tainttolerationplugin.(framework.ScorePlugin))
 
 	return scorePlugins, nil
 }
@@ -192,6 +205,7 @@ var (
 	nodeunschedulableplugin     framework.Plugin
 	nodenumberplugin            framework.Plugin
 	nodenameunschedulableplugin framework.Plugin
+	tainttolerationplugin       framework.Plugin
 )
 
 func createNodeUnschedulablePlugin() (framework.Plugin, error) {
@@ -210,6 +224,16 @@ func createNodeNameUnschedulablePlugin() (framework.Plugin, error) {
 	}
 	p, err := nodenameunschedulable.New(nil, nil)
 	nodenameunschedulableplugin = p
+	return p, err
+}
+
+func createTaintTolerationPlugin(h waitingpod.Handle) (framework.Plugin, error) {
+	if tainttolerationplugin != nil {
+		return tainttolerationplugin, nil
+	}
+
+	p, err := tainttoleration.New(nil, h)
+	tainttolerationplugin = p
 	return p, err
 }
 

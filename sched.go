@@ -75,10 +75,10 @@ func scenario(client clientset.Interface) error {
 		suffix := strconv.Itoa(i)
 		_, err := client.CoreV1().Nodes().Create(ctx, &v1.Node{
 			ObjectMeta: metav1.ObjectMeta{
-				Name: "nodeunschedulable" + suffix,
+				Name: "node" + suffix,
 			},
 			Spec: v1.NodeSpec{
-				Unschedulable: false,
+				Unschedulable: true,
 			},
 		}, metav1.CreateOptions{})
 		if err != nil {
@@ -97,52 +97,58 @@ func scenario(client clientset.Interface) error {
 					Image: "k8s.gcr.io/pause:3.5",
 				},
 			},
+			Tolerations: []v1.Toleration{
+				{
+					Key:      "example-key",
+					Operator: "Exists",
+					Effect:   "NoSchedule",
+				},
+			},
 		},
 	}, metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("create pod: %w", err)
 	}
-
 	klog.Info("schenario: pod1 created")
 
 	// wait to schedule
 	time.Sleep(3 * time.Second)
-
-	pod1, err := client.CoreV1().Pods("default").Get(ctx, "pod1", metav1.GetOptions{})
+	err = checkPodBound(client, ctx, "pod1")
 	if err != nil {
-		return fmt.Errorf("get pod: %w", err)
+		return err
 	}
 
-	if len(pod1.Spec.NodeName) != 0 {
-		klog.Info("pod1 is bound to " + pod1.Spec.NodeName)
-	} else {
-		klog.Info("pod1 has not been bound yet")
-	}
-
-	_, err = client.CoreV1().Nodes().Create(ctx, &v1.Node{
+	_, err = client.CoreV1().Nodes().Update(ctx, &v1.Node{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "node10",
+			Name: "node5",
 		},
 		Spec: v1.NodeSpec{
 			Unschedulable: false,
 		},
-	}, metav1.CreateOptions{})
+	}, metav1.UpdateOptions{})
 	if err != nil {
-		return fmt.Errorf("create node: %w", err)
+		return fmt.Errorf("update node: %w", err)
 	}
-	klog.Info("node10 is created")
+	klog.Info("schenario: node5 updated")
 
 	// wait to schedule
-	time.Sleep(5 * time.Second)
-	pod1, err = client.CoreV1().Pods("default").Get(ctx, "pod1", metav1.GetOptions{})
+	time.Sleep(10 * time.Second)
+	err = checkPodBound(client, ctx, "pod1")
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func checkPodBound(client clientset.Interface, ctx context.Context, podName string) error {
+	pod, err := client.CoreV1().Pods("default").Get(ctx, podName, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("get pod: %w", err)
 	}
-	if len(pod1.Spec.NodeName) != 0 {
-		klog.Info("pod1 is bound to " + pod1.Spec.NodeName)
+	if len(pod.Spec.NodeName) != 0 {
+		klog.Info(podName + " is bound to " + pod.Spec.NodeName)
 	} else {
-		klog.Info("pod1 has not been bound yet")
+		klog.Info(podName + " has not been bound yet")
 	}
-
 	return nil
 }
