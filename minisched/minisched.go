@@ -13,7 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 
-	"github.com/sanposhiho/mini-kube-scheduler/minisched/waitingpod"
+	"github.com/Gekko0114/mini-kube-scheduler/minisched/waitingpod"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 )

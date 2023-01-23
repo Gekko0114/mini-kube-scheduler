@@ -3,11 +3,11 @@ package minisched
 import (
 	"fmt"
 
-	"github.com/sanposhiho/mini-kube-scheduler/minisched/plugins/filter/nodenameunschedulable"
-	"github.com/sanposhiho/mini-kube-scheduler/minisched/plugins/score/nodenumber"
-	"github.com/sanposhiho/mini-kube-scheduler/minisched/plugins/score/tainttoleration"
-	"github.com/sanposhiho/mini-kube-scheduler/minisched/queue"
-	"github.com/sanposhiho/mini-kube-scheduler/minisched/waitingpod"
+	"github.com/Gekko0114/mini-kube-scheduler/minisched/plugins/filter/nodenameunschedulable"
+	"github.com/Gekko0114/mini-kube-scheduler/minisched/plugins/score/nodenumber"
+	"github.com/Gekko0114/mini-kube-scheduler/minisched/plugins/score/tainttoleration"
+	"github.com/Gekko0114/mini-kube-scheduler/minisched/queue"
+	"github.com/Gekko0114/mini-kube-scheduler/minisched/waitingpod"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/informers"

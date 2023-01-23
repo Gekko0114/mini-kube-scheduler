@@ -12,7 +12,7 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config/scheme"
 
-	"github.com/sanposhiho/mini-kube-scheduler/scheduler/defaultconfig"
+	"github.com/Gekko0114/mini-kube-scheduler/scheduler/defaultconfig"
 )
 
 func Test_convertConfigurationForSimulator(t *testing.T) {

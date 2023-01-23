@@ -1,7 +1,7 @@
 # initial random scheduler
 
 このブランチではファーストステップとして完全にランダムな Node に Pod を bind する Scheduler を作成します。
-このブランチの Scheduler を試す方法は master ブランチの README を参照してください。([ref](https://github.com/sanposhiho/mini-kube-scheduler/blob/master/README.ja.md))
+このブランチの Scheduler を試す方法は master ブランチの README を参照してください。([ref](https://github.com/Gekko0114/mini-kube-scheduler/blob/master/README.ja.md))
 
 ここで実装しなければいけないフローは以下のようになります。
 

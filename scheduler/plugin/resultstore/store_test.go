@@ -11,7 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/sanposhiho/mini-kube-scheduler/scheduler/plugin/annotation"
+	"github.com/Gekko0114/mini-kube-scheduler/scheduler/plugin/annotation"
 )
 
 func TestStore_AddFilterResult(t *testing.T) {

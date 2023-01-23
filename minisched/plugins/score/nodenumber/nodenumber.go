@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/sanposhiho/mini-kube-scheduler/minisched/waitingpod"
+	"github.com/Gekko0114/mini-kube-scheduler/minisched/waitingpod"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
