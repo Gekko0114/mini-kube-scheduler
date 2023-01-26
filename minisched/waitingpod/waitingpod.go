@@ -12,6 +12,7 @@ import (
 
 type Handle interface {
 	GetWaitingPod(uid types.UID) *WaitingPod
+	SnapshotSharedLister() SharedLister
 }
 
 type WaitingPod struct {

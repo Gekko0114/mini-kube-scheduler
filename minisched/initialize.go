@@ -3,6 +3,7 @@ package minisched
 import (
 	"fmt"
 
+	"github.com/Gekko0114/mini-kube-scheduler/minisched/cache"
 	"github.com/Gekko0114/mini-kube-scheduler/minisched/plugins/filter/nodenameunschedulable"
 	"github.com/Gekko0114/mini-kube-scheduler/minisched/plugins/score/nodenumber"
 	"github.com/Gekko0114/mini-kube-scheduler/minisched/plugins/score/tainttoleration"
@@ -21,7 +22,8 @@ type Scheduler struct {
 
 	client clientset.Interface
 
-	waitingPods map[types.UID]*waitingpod.WaitingPod
+	waitingPods  map[types.UID]*waitingpod.WaitingPod
+	sharedLister waitingpod.SharedLister
 
 	filterPlugins   []framework.FilterPlugin
 	preScorePlugins []framework.PreScorePlugin
@@ -33,9 +35,11 @@ func New(
 	client clientset.Interface,
 	informerFactory informers.SharedInformerFactory,
 ) (*Scheduler, error) {
+	snapshot := cache.NewEmptySnapshot()
 	sched := &Scheduler{
-		client:      client,
-		waitingPods: map[types.UID]*waitingpod.WaitingPod{},
+		client:       client,
+		waitingPods:  map[types.UID]*waitingpod.WaitingPod{},
+		sharedLister: snapshot,
 	}
 
 	filterP, err := createFilterPlugins(sched)

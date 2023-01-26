@@ -3,34 +3,34 @@ package cache
 import (
 	"fmt"
 
+	"github.com/Gekko0114/mini-kube-scheduler/minisched/waitingpod"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/kubernetes/pkg/scheduler/framework"
 )
 
 type Snapshot struct {
-	nodeInfoMap                                  map[string]*framework.NodeInfo
-	nodeInfoList                                 []*framework.NodeInfo
-	havePodsWithAffinityNodeInfoList             []*framework.NodeInfo
-	havePodsWithRequiredAntiAffinityNodeInfoList []*framework.NodeInfo
+	nodeInfoMap                                  map[string]*waitingpod.NodeInfo
+	nodeInfoList                                 []*waitingpod.NodeInfo
+	havePodsWithAffinityNodeInfoList             []*waitingpod.NodeInfo
+	havePodsWithRequiredAntiAffinityNodeInfoList []*waitingpod.NodeInfo
 	usedPVCSet                                   sets.String
 	generation                                   int64
 }
 
-var _ framework.SharedLister = &Snapshot{}
+var _ waitingpod.SharedLister = &Snapshot{}
 
 func NewEmptySnapshot() *Snapshot {
 	return &Snapshot{
-		nodeInfoMap: make(map[string]*framework.NodeInfo),
+		nodeInfoMap: make(map[string]*waitingpod.NodeInfo),
 		usedPVCSet:  sets.NewString(),
 	}
 }
 
 func NewSnapshot(pods []*v1.Pod, nodes []*v1.Node) *Snapshot {
 	nodeInfoMap := createNodeInfoMap(pods, nodes)
-	nodeInfoList := make([]*framework.NodeInfo, 0, len(nodeInfoMap))
-	havePodsWithAffinityNodeInfoList := make([]*framework.NodeInfo, 0, len(nodeInfoMap))
-	havePodsWithRequiredAntiAffinityNodeInfoList := make([]*framework.NodeInfo, 0, len(nodeInfoMap))
+	nodeInfoList := make([]*waitingpod.NodeInfo, 0, len(nodeInfoMap))
+	havePodsWithAffinityNodeInfoList := make([]*waitingpod.NodeInfo, 0, len(nodeInfoMap))
+	havePodsWithRequiredAntiAffinityNodeInfoList := make([]*waitingpod.NodeInfo, 0, len(nodeInfoMap))
 	for _, v := range nodeInfoMap {
 		nodeInfoList = append(nodeInfoList, v)
 		if len(v.PodsWithAffinity) > 0 {
@@ -50,24 +50,22 @@ func NewSnapshot(pods []*v1.Pod, nodes []*v1.Node) *Snapshot {
 	return s
 }
 
-func createNodeInfoMap(pods []*v1.Pod, nodes []*v1.Node) map[string]*framework.NodeInfo {
-	nodeNameToInfo := make(map[string]*framework.NodeInfo)
+func createNodeInfoMap(pods []*v1.Pod, nodes []*v1.Node) map[string]*waitingpod.NodeInfo {
+	nodeNameToInfo := make(map[string]*waitingpod.NodeInfo)
 	for _, pod := range pods {
 		nodeName := pod.Spec.NodeName
 		if _, ok := nodeNameToInfo[nodeName]; !ok {
-			nodeNameToInfo[nodeName] = framework.NewNodeInfo()
+			nodeNameToInfo[nodeName] = waitingpod.NewNodeInfo()
 		}
 		nodeNameToInfo[nodeName].AddPod(pod)
 	}
-	imageExistenceMap := createImageExistenceMap(nodes)
 
 	for _, node := range nodes {
 		if _, ok := nodeNameToInfo[node.Name]; !ok {
-			nodeNameToInfo[node.Name] = framework.NewNodeInfo()
+			nodeNameToInfo[node.Name] = waitingpod.NewNodeInfo()
 		}
 		nodeInfo := nodeNameToInfo[node.Name]
 		nodeInfo.SetNode(node)
-		nodeInfo.ImageStates = getNodeImageStates(node, imageExistenceMap)
 	}
 	return nodeNameToInfo
 }
@@ -84,48 +82,22 @@ func createUsedPVCSet(pods []*v1.Pod) sets.String {
 				continue
 			}
 
-			key := framework.GetNamespacedName(pod.Namespace, v.PersistentVolumeClaim.ClaimName)
+			key := GetNamespacedName(pod.Namespace, v.PersistentVolumeClaim.ClaimName)
 			usedPVCSet.Insert(key)
 		}
 	}
 	return usedPVCSet
 }
 
-func getNodeImageStates(node *v1.Node, imageExistenceMap map[string]sets.String) map[string]*framework.ImageStateSummary {
-	imageStates := make(map[string]*framework.ImageStateSummary)
-
-	for _, image := range node.Status.Images {
-		for _, name := range image.Names {
-			imageStates[name] = &framework.ImageStateSummary{
-				Size:     image.SizeBytes,
-				NumNodes: len(imageExistenceMap[name]),
-			}
-		}
-	}
-	return imageStates
+func GetNamespacedName(namespace, name string) string {
+	return fmt.Sprintf("%s/%s", namespace, name)
 }
 
-func createImageExistenceMap(nodes []*v1.Node) map[string]sets.String {
-	imageExistenceMap := make(map[string]sets.String)
-	for _, node := range nodes {
-		for _, image := range node.Status.Images {
-			for _, name := range image.Names {
-				if _, ok := imageExistenceMap[name]; !ok {
-					imageExistenceMap[name] = sets.NewString(node.Name)
-				} else {
-					imageExistenceMap[name].Insert(node.Name)
-				}
-			}
-		}
-	}
-	return imageExistenceMap
-}
-
-func (s *Snapshot) NodeInfos() framework.NodeInfoLister {
+func (s *Snapshot) NodeInfos() waitingpod.NodeInfoLister {
 	return s
 }
 
-func (s *Snapshot) StorageInfos() framework.StorageInfoLister {
+func (s *Snapshot) StorageInfos() waitingpod.StorageInfoLister {
 	return s
 }
 
@@ -133,19 +105,19 @@ func (s *Snapshot) NumNodes() int {
 	return len(s.nodeInfoList)
 }
 
-func (s *Snapshot) List() ([]*framework.NodeInfo, error) {
+func (s *Snapshot) List() ([]*waitingpod.NodeInfo, error) {
 	return s.nodeInfoList, nil
 }
 
-func (s *Snapshot) HavePodsWithAffinityList() ([]*framework.NodeInfo, error) {
+func (s *Snapshot) HavePodsWithAffinityList() ([]*waitingpod.NodeInfo, error) {
 	return s.havePodsWithAffinityNodeInfoList, nil
 }
 
-func (s *Snapshot) HavePodsWithRequiredAntiAffinityList() ([]*framework.NodeInfo, error) {
+func (s *Snapshot) HavePodsWithRequiredAntiAffinityList() ([]*waitingpod.NodeInfo, error) {
 	return s.havePodsWithRequiredAntiAffinityNodeInfoList, nil
 }
 
-func (s *Snapshot) Get(nodeName string) (*framework.NodeInfo, error) {
+func (s *Snapshot) Get(nodeName string) (*waitingpod.NodeInfo, error) {
 	if v, ok := s.nodeInfoMap[nodeName]; ok && v.Node() != nil {
 		return v, nil
 	}

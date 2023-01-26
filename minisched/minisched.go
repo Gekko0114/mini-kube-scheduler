@@ -275,6 +275,10 @@ func (sched *Scheduler) GetWaitingPod(uid types.UID) *waitingpod.WaitingPod {
 	return sched.waitingPods[uid]
 }
 
+func (sched *Scheduler) SnapshotSharedLister() waitingpod.SharedLister {
+	return sched.sharedLister
+}
+
 func (sched *Scheduler) selectHost(nodeScoreList framework.NodeScoreList) (string, error) {
 	if len(nodeScoreList) == 0 {
 		return "", fmt.Errorf("empty priorityList")
