@@ -97,13 +97,6 @@ func scenario(client clientset.Interface) error {
 					Image: "k8s.gcr.io/pause:3.5",
 				},
 			},
-			Tolerations: []v1.Toleration{
-				{
-					Key:      "example-key",
-					Operator: "Exists",
-					Effect:   "NoSchedule",
-				},
-			},
 		},
 	}, metav1.CreateOptions{})
 	if err != nil {

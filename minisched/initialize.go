@@ -96,6 +96,13 @@ func createFilterPlugins(h waitingpod.Handle) ([]framework.FilterPlugin, error) 
 
 	filterPlugins = append(filterPlugins, nodenameunschedulableplugin.(framework.FilterPlugin))
 
+	tainttolerationplugin, err := createTaintTolerationPlugin(h)
+	if err != nil {
+		return nil, fmt.Errorf("create tainttolerationplugin: %w", err)
+	}
+
+	filterPlugins = append(filterPlugins, tainttolerationplugin.(framework.FilterPlugin))
+
 	return filterPlugins, nil
 }
 

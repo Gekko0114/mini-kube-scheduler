@@ -1,6 +1,7 @@
 package waitingpod
 
 import (
+	"errors"
 	"fmt"
 	"sync/atomic"
 
@@ -9,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 )
 
 type NodeInfo struct {
@@ -76,6 +78,7 @@ func (n *NodeInfo) AddPodInfo(podInfo *PodInfo) {
 	if podWithRequiredAntiAffinity(podInfo.Pod) {
 		n.PodsWithRequiredAntiAffinity = append(n.PodsWithRequiredAntiAffinity, podInfo)
 	}
+	n.update(podInfo.Pod, 1)
 }
 
 func podWithAffinity(p *v1.Pod) bool {
@@ -216,4 +219,93 @@ func (n *NodeInfo) Node() *v1.Node {
 		return nil
 	}
 	return n.node
+}
+
+func (n *NodeInfo) Clone() *NodeInfo {
+	clone := &NodeInfo{
+		node:       n.node,
+		Generation: n.Generation,
+	}
+	if len(n.Pods) > 0 {
+		clone.Pods = append([]*PodInfo(nil), n.Pods...)
+	}
+	if len(n.PodsWithAffinity) > 0 {
+		clone.PodsWithAffinity = append([]*PodInfo(nil), n.PodsWithAffinity...)
+	}
+	if len(n.PodsWithRequiredAntiAffinity) > 0 {
+		clone.PodsWithRequiredAntiAffinity = append([]*PodInfo(nil), n.PodsWithRequiredAntiAffinity...)
+	}
+	for key, value := range n.PVCRefCounts {
+		clone.PVCRefCounts[key] = value
+	}
+	return clone
+}
+
+func (n *NodeInfo) RemovePod(pod *v1.Pod) error {
+	k, err := GetPodKey(pod)
+	if err != nil {
+		return err
+	}
+	if podWithAffinity(pod) {
+		n.PodsWithAffinity = removeFromSlice(n.PodsWithAffinity, k)
+	}
+	if podWithRequiredAntiAffinity(pod) {
+		n.PodsWithRequiredAntiAffinity = removeFromSlice(n.PodsWithRequiredAntiAffinity, k)
+	}
+
+	for i := range n.Pods {
+		k2, err := GetPodKey(n.Pods[i].Pod)
+		if err != nil {
+			klog.ErrorS(err, "Cannot get pod key", "pod", klog.KObj(n.Pods[i].Pod))
+			continue
+		}
+		if k == k2 {
+			n.Pods[i] = n.Pods[len(n.Pods)-1]
+			n.Pods = n.Pods[:len(n.Pods)-1]
+			n.update(pod, -1)
+			n.resetSlicesIfEmpty()
+			return nil
+		}
+	}
+	return fmt.Errorf("no corresponding pod %s in pods of node %s", pod.Name, n.node.Name)
+}
+
+func GetPodKey(pod *v1.Pod) (string, error) {
+	uid := string(pod.UID)
+	if len(uid) == 0 {
+		return "", errors.New("cannot get cache key for pod with empty UID")
+	}
+	return uid, nil
+}
+
+func removeFromSlice(s []*PodInfo, k string) []*PodInfo {
+	for i := range s {
+		k2, err := GetPodKey(s[i].Pod)
+		if err != nil {
+			klog.ErrorS(err, "Cannot get pod key", "pod", klog.KObj(s[i].Pod))
+			continue
+		}
+		if k == k2 {
+			s[i] = s[len(s)-1]
+			s = s[:len(s)-1]
+			break
+		}
+	}
+	return s
+}
+
+func (n *NodeInfo) resetSlicesIfEmpty() {
+	if len(n.PodsWithAffinity) == 0 {
+		n.PodsWithAffinity = nil
+	}
+	if len(n.PodsWithRequiredAntiAffinity) == 0 {
+		n.PodsWithRequiredAntiAffinity = nil
+	}
+	if len(n.Pods) == 0 {
+		n.Pods = nil
+	}
+}
+
+func (n *NodeInfo) update(pod *v1.Pod, sign int64) {
+	n.Generation = nextGeneration()
 }

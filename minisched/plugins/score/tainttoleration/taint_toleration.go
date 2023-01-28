@@ -15,6 +15,7 @@ type TaintToleration struct {
 	handle waitingpod.Handle
 }
 
+var _ framework.FilterPlugin = &TaintToleration{}
 var _ framework.ScorePlugin = &TaintToleration{}
 var _ framework.PreScorePlugin = &TaintToleration{}
 
@@ -23,6 +24,27 @@ const preScoreStateKey = "PreScore" + Name
 
 func (pl *TaintToleration) Name() string {
 	return Name
+}
+
+func (pl *TaintToleration) Filter(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodeInfo *framework.NodeInfo) *framework.Status {
+	node := nodeInfo.Node()
+	if node == nil {
+		return framework.AsStatus(fmt.Errorf("invalid nodeInfo"))
+	}
+
+	taint, isUntolerated := v1helper.FindMatchingUntoleratedTaint(node.Spec.Taints, pod.Spec.Tolerations, DoNotScheduleTaintsFilterFunc())
+	if !isUntolerated {
+		return nil
+	}
+
+	errReason := fmt.Sprintf("node(s) had untolerated taint {%s: %s}", taint.Key, taint.Value)
+	return framework.NewStatus(framework.UnschedulableAndUnresolvable, errReason)
+}
+
+func DoNotScheduleTaintsFilterFunc() func(t *v1.Taint) bool {
+	return func(t *v1.Taint) bool {
+		return t.Effect == v1.TaintEffectNoSchedule || t.Effect == v1.TaintEffectNoExecute
+	}
 }
 
 type preScoreState struct {
