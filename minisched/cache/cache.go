@@ -139,12 +139,15 @@ func (cache *cacheImpl) UpdateSnapshot(nodeSnapshot *Snapshot) error {
 	updateNodesHavePodsWithAffinity := false
 	udpateNodesHavePodsWithRequiredAntiAffinity := false
 	updateUsedPVCSet := false
+	//	klog.Info("updatesnapshot running")
 
 	for node := cache.headNode; node != nil; node = node.next {
+		//		klog.Info("updatesnapshot running.")
 		if node.info.Generation <= snapshotGeneration {
 			break
 		}
 		if np := node.info.Node(); np != nil {
+			//			klog.Info("updatesnapshot: " + np.Name)
 			existing, ok := nodeSnapshot.nodeInfoMap[np.Name]
 			if !ok {
 				updateAllLists = true
@@ -526,6 +529,7 @@ func (cache *cacheImpl) RemoveNode(node *v1.Node) error {
 	if !ok {
 		return fmt.Errorf("node %v is not found", node.Name)
 	}
+	n.info.RemoveNode()
 
 	if len(n.info.Pods) == 0 {
 		cache.removeNodeInfoFromList(node.Name)

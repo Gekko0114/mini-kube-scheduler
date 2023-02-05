@@ -2,6 +2,7 @@ package minisched
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/Gekko0114/mini-kube-scheduler/minisched/cache"
 	"github.com/Gekko0114/mini-kube-scheduler/minisched/plugins/filter/nodenameunschedulable"
@@ -11,19 +12,29 @@ import (
 	"github.com/Gekko0114/mini-kube-scheduler/minisched/waitingpod"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeunschedulable"
 )
 
+const (
+	// Duration the scheduler will wait before expiring an assumed pod.
+	// See issue #106361 for more details about this parameter and its value.
+	durationToExpireAssumedPod time.Duration = 0
+)
+
 type Scheduler struct {
 	SchedulingQueue *queue.SchedulingQueue
+	Cache           cache.Cache
 
 	client clientset.Interface
 
-	waitingPods  map[types.UID]*waitingpod.WaitingPod
-	sharedLister waitingpod.SharedLister
+	waitingPods      map[types.UID]*waitingpod.WaitingPod
+	sharedLister     waitingpod.SharedLister
+	nodeInfoSnapshot *cache.Snapshot
+	stopEverything   <-chan struct{}
 
 	filterPlugins   []framework.FilterPlugin
 	preScorePlugins []framework.PreScorePlugin
@@ -35,11 +46,16 @@ func New(
 	client clientset.Interface,
 	informerFactory informers.SharedInformerFactory,
 ) (*Scheduler, error) {
+	stopEverything := wait.NeverStop
 	snapshot := cache.NewEmptySnapshot()
+	schedulerCache := cache.New(durationToExpireAssumedPod, stopEverything)
 	sched := &Scheduler{
-		client:       client,
-		waitingPods:  map[types.UID]*waitingpod.WaitingPod{},
-		sharedLister: snapshot,
+		client:           client,
+		waitingPods:      map[types.UID]*waitingpod.WaitingPod{},
+		sharedLister:     snapshot,
+		Cache:            schedulerCache,
+		nodeInfoSnapshot: snapshot,
+		stopEverything:   stopEverything,
 	}
 
 	filterP, err := createFilterPlugins(sched)

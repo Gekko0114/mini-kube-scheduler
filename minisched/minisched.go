@@ -29,6 +29,12 @@ func (sched *Scheduler) scheduleOne(ctx context.Context) {
 
 	state := framework.NewCycleState()
 
+	klog.Info("updatesnapshot started")
+	if err := sched.Cache.UpdateSnapshot(sched.nodeInfoSnapshot); err != nil {
+		klog.Error(err)
+		return
+	}
+
 	// get nodes
 	nodes, err := sched.client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {

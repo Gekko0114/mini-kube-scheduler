@@ -3,7 +3,10 @@ package waitingpod
 import (
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"sync/atomic"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -13,16 +16,25 @@ import (
 	"k8s.io/klog/v2"
 )
 
-type NodeInfo struct {
-	node                         *v1.Node
-	Pods                         []*PodInfo
-	PodsWithAffinity             []*PodInfo
-	PodsWithRequiredAntiAffinity []*PodInfo
-	PVCRefCounts                 map[string]int
-	Generation                   int64
+var generation int64
+
+type QueuedPodInfo struct {
+	*PodInfo
+	Timestamp               time.Time
+	Attempts                int
+	InitialAttemptTimestamp time.Time
+	Gated                   bool
 }
 
-var generation int64
+func (pqi *QueuedPodInfo) DeepCopy() *QueuedPodInfo {
+	return &QueuedPodInfo{
+		PodInfo:                 pqi.PodInfo.DeepCopy(),
+		Timestamp:               pqi.Timestamp,
+		Attempts:                pqi.Attempts,
+		InitialAttemptTimestamp: pqi.InitialAttemptTimestamp,
+		Gated:                   pqi.Gated,
+	}
+}
 
 type PodInfo struct {
 	Pod                        *v1.Pod
@@ -32,64 +44,14 @@ type PodInfo struct {
 	PreferredAntiAffinityTerms []WeightedAffinityTerm
 }
 
-type AffinityTerm struct {
-	Namespaces        sets.String
-	Selector          labels.Selector
-	TopologyKey       string
-	NamespaceSelector labels.Selector
-}
-
-type WeightedAffinityTerm struct {
-	AffinityTerm
-	Weight int32
-}
-
-func NewNodeInfo(pods ...*v1.Pod) *NodeInfo {
-	ni := &NodeInfo{
-		PVCRefCounts: make(map[string]int),
-		Generation:   nextGeneration(),
+func (pi *PodInfo) DeepCopy() *PodInfo {
+	return &PodInfo{
+		Pod:                        pi.Pod.DeepCopy(),
+		RequiredAffinityTerms:      pi.RequiredAffinityTerms,
+		RequiredAntiAffinityTerms:  pi.RequiredAntiAffinityTerms,
+		PreferredAffinityTerms:     pi.PreferredAffinityTerms,
+		PreferredAntiAffinityTerms: pi.PreferredAntiAffinityTerms,
 	}
-	for _, pod := range pods {
-		ni.AddPod(pod)
-	}
-	return ni
-}
-
-func nextGeneration() int64 {
-	return atomic.AddInt64(&generation, 1)
-}
-
-func (n *NodeInfo) AddPod(pod *v1.Pod) {
-	podInfo, _ := NewPodInfo(pod)
-	n.AddPodInfo(podInfo)
-}
-
-func NewPodInfo(pod *v1.Pod) (*PodInfo, error) {
-	pInfo := &PodInfo{}
-	err := pInfo.Update(pod)
-	return pInfo, err
-}
-
-func (n *NodeInfo) AddPodInfo(podInfo *PodInfo) {
-	n.Pods = append(n.Pods, podInfo)
-	if podWithAffinity(podInfo.Pod) {
-		n.PodsWithAffinity = append(n.PodsWithAffinity, podInfo)
-	}
-	if podWithRequiredAntiAffinity(podInfo.Pod) {
-		n.PodsWithRequiredAntiAffinity = append(n.PodsWithRequiredAntiAffinity, podInfo)
-	}
-	n.update(podInfo.Pod, 1)
-}
-
-func podWithAffinity(p *v1.Pod) bool {
-	affinity := p.Spec.Affinity
-	return affinity != nil && (affinity.PodAffinity != nil || affinity.PodAntiAffinity != nil)
-}
-
-func podWithRequiredAntiAffinity(p *v1.Pod) bool {
-	affinity := p.Spec.Affinity
-	return affinity != nil && affinity.PodAntiAffinity != nil &&
-		len(affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution) != 0
 }
 
 func (pi *PodInfo) Update(pod *v1.Pod) error {
@@ -134,6 +96,79 @@ func (pi *PodInfo) Update(pod *v1.Pod) error {
 	return utilerrors.NewAggregate(parseErrs)
 }
 
+type AffinityTerm struct {
+	Namespaces        sets.String
+	Selector          labels.Selector
+	TopologyKey       string
+	NamespaceSelector labels.Selector
+}
+
+func (at *AffinityTerm) Matches(pod *v1.Pod, nsLabels labels.Set) bool {
+	if at.Namespaces.Has(pod.Namespace) || at.NamespaceSelector.Matches(nsLabels) {
+		return at.Selector.Matches(labels.Set(pod.Labels))
+	}
+	return false
+}
+
+type WeightedAffinityTerm struct {
+	AffinityTerm
+	Weight int32
+}
+
+type Diagnosis struct {
+	NodeToStatusMap      NodeToStatusMap
+	UnschedulablePlugins sets.String
+	PreFilterMsg         string
+	PostFilterMsg        string
+}
+
+type FitError struct {
+	Pod         *v1.Pod
+	NumAllNodes int
+	Diagnosis   Diagnosis
+}
+
+const (
+	// NoNodeAvailableMsg is used to format message when no nodes available.
+	NoNodeAvailableMsg = "0/%v nodes are available"
+	// SeparatorFormat is used to separate PreFilterMsg, FilterMsg and PostFilterMsg.
+	SeparatorFormat = " %v."
+)
+
+func (f *FitError) Error() string {
+	reasons := make(map[string]int)
+	for _, status := range f.Diagnosis.NodeToStatusMap {
+		for _, reason := range status.Reasons() {
+			reasons[reason]++
+		}
+	}
+
+	reasonMsg := fmt.Sprintf(NoNodeAvailableMsg+":", f.NumAllNodes)
+	// Add the messages from PreFilter plugins to reasonMsg.
+	preFilterMsg := f.Diagnosis.PreFilterMsg
+	if preFilterMsg != "" {
+		reasonMsg += fmt.Sprintf(SeparatorFormat, preFilterMsg)
+	}
+	sortReasonsHistogram := func() []string {
+		var reasonStrings []string
+		for k, v := range reasons {
+			reasonStrings = append(reasonStrings, fmt.Sprintf("%v %v", v, k))
+		}
+		sort.Strings(reasonStrings)
+		return reasonStrings
+	}
+	sortedFilterMsg := sortReasonsHistogram()
+	if len(sortedFilterMsg) != 0 {
+		reasonMsg += fmt.Sprintf(SeparatorFormat, strings.Join(sortedFilterMsg, ", "))
+	}
+	// Add the messages from PostFilter plugins to reasonMsg.
+	postFilterMsg := f.Diagnosis.PostFilterMsg
+	if postFilterMsg != "" {
+		reasonMsg += fmt.Sprintf(SeparatorFormat, postFilterMsg)
+	}
+	return reasonMsg
+}
+
 func getAffinityTerms(pod *v1.Pod, v1Terms []v1.PodAffinityTerm) ([]AffinityTerm, error) {
 	if v1Terms == nil {
 		return nil, nil
@@ -164,6 +199,12 @@ func getWeightedAffinityTerms(pod *v1.Pod, v1Terms []v1.WeightedPodAffinityTerm)
 		terms = append(terms, WeightedAffinityTerm{AffinityTerm: *t, Weight: v1Terms[i].Weight})
 	}
 	return terms, nil
+}
+
+func NewPodInfo(pod *v1.Pod) (*PodInfo, error) {
+	pInfo := &PodInfo{}
+	err := pInfo.Update(pod)
+	return pInfo, err
 }
 
 func newAffinityTerm(pod *v1.Pod, term *v1.PodAffinityTerm) (*AffinityTerm, error) {
@@ -209,9 +250,28 @@ func getNamespacesFromPodAffinityTerm(pod *v1.Pod, podAffinityTerm *v1.PodAffini
 	return names
 }
 
-func (n *NodeInfo) SetNode(node *v1.Node) {
-	n.node = node
-	n.Generation = nextGeneration()
+type NodeInfo struct {
+	node                         *v1.Node
+	Pods                         []*PodInfo
+	PodsWithAffinity             []*PodInfo
+	PodsWithRequiredAntiAffinity []*PodInfo
+	PVCRefCounts                 map[string]int
+	Generation                   int64
+}
+
+func nextGeneration() int64 {
+	return atomic.AddInt64(&generation, 1)
+}
+
+func NewNodeInfo(pods ...*v1.Pod) *NodeInfo {
+	ni := &NodeInfo{
+		PVCRefCounts: make(map[string]int),
+		Generation:   nextGeneration(),
+	}
+	for _, pod := range pods {
+		ni.AddPod(pod)
+	}
+	return ni
 }
 
 func (n *NodeInfo) Node() *v1.Node {
@@ -239,6 +299,58 @@ func (n *NodeInfo) Clone() *NodeInfo {
 		clone.PVCRefCounts[key] = value
 	}
 	return clone
+}
+
+func (n *NodeInfo) String() string {
+	podKeys := make([]string, len(n.Pods))
+	for i, p := range n.Pods {
+		podKeys[i] = p.Pod.Name
+	}
+
+	return fmt.Sprintf("&NodeInfo{Pods:%v}", podKeys)
+}
+
+func (n *NodeInfo) AddPodInfo(podInfo *PodInfo) {
+	n.Pods = append(n.Pods, podInfo)
+	if podWithAffinity(podInfo.Pod) {
+		n.PodsWithAffinity = append(n.PodsWithAffinity, podInfo)
+	}
+	if podWithRequiredAntiAffinity(podInfo.Pod) {
+		n.PodsWithRequiredAntiAffinity = append(n.PodsWithRequiredAntiAffinity, podInfo)
+	}
+	n.update(podInfo.Pod, 1)
+}
+
+func (n *NodeInfo) AddPod(pod *v1.Pod) {
+	podInfo, _ := NewPodInfo(pod)
+	n.AddPodInfo(podInfo)
+}
+
+func podWithAffinity(p *v1.Pod) bool {
+	affinity := p.Spec.Affinity
+	return affinity != nil && (affinity.PodAffinity != nil || affinity.PodAntiAffinity != nil)
+}
+
+func podWithRequiredAntiAffinity(p *v1.Pod) bool {
+	affinity := p.Spec.Affinity
+	return affinity != nil && affinity.PodAntiAffinity != nil &&
+		len(affinity.PodAntiAffinity.RequiredDuringSchedulingIgnoredDuringExecution) != 0
+}
+
+func removeFromSlice(s []*PodInfo, k string) []*PodInfo {
+	for i := range s {
+		k2, err := GetPodKey(s[i].Pod)
+		if err != nil {
+			klog.ErrorS(err, "Cannot get pod key", "pod", klog.KObj(s[i].Pod))
+			continue
+		}
+		if k == k2 {
+			s[i] = s[len(s)-1]
+			s = s[:len(s)-1]
+			break
+		}
+	}
+	return s
 }
 
 func (n *NodeInfo) RemovePod(pod *v1.Pod) error {
@@ -270,28 +382,8 @@ func (n *NodeInfo) RemovePod(pod *v1.Pod) error {
 	return fmt.Errorf("no corresponding pod %s in pods of node %s", pod.Name, n.node.Name)
 }
 
-func GetPodKey(pod *v1.Pod) (string, error) {
-	uid := string(pod.UID)
-	if len(uid) == 0 {
-		return "", errors.New("cannot get cache key for pod with empty UID")
-	}
-	return uid, nil
-}
-
-func removeFromSlice(s []*PodInfo, k string) []*PodInfo {
-	for i := range s {
-		k2, err := GetPodKey(s[i].Pod)
-		if err != nil {
-			klog.ErrorS(err, "Cannot get pod key", "pod", klog.KObj(s[i].Pod))
-			continue
-		}
-		if k == k2 {
-			s[i] = s[len(s)-1]
-			s = s[:len(s)-1]
-			break
-		}
-	}
-	return s
+func (n *NodeInfo) update(pod *v1.Pod, sign int64) {
+	n.Generation = nextGeneration()
 }
 
 func (n *NodeInfo) resetSlicesIfEmpty() {
@@ -306,6 +398,31 @@ func (n *NodeInfo) resetSlicesIfEmpty() {
 	}
 }
 
-func (n *NodeInfo) update(pod *v1.Pod, sign int64) {
+func max(a, b int64) int64 {
+	if a >= b {
+		return a
+	}
+	return b
+}
+
+func (n *NodeInfo) SetNode(node *v1.Node) {
+	n.node = node
 	n.Generation = nextGeneration()
+}
+
+func (n *NodeInfo) RemoveNode() {
+	n.node = nil
+	n.Generation = nextGeneration()
+}
+
+func GetPodKey(pod *v1.Pod) (string, error) {
+	uid := string(pod.UID)
+	if len(uid) == 0 {
+		return "", errors.New("cannot get cache key for pod with empty UID")
+	}
+	return uid, nil
+}
+
+func GetNamespacedName(namespace, name string) string {
+	return fmt.Sprintf("%s/%s", namespace, name)
 }

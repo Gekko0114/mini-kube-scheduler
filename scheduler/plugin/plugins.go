@@ -142,6 +142,7 @@ func NewPluginConfig(pc []v1beta2.PluginConfig) ([]v1beta2.PluginConfig, error) 
 
 // ConvertForSimulator convert v1beta2.Plugins for simulator.
 // It ignores non-default plugin.
+//
 //nolint:cyclop
 func ConvertForSimulator(pls *v1beta2.Plugins) (*v1beta2.Plugins, error) {
 	newpls := pls.DeepCopy()
