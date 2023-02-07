@@ -283,8 +283,9 @@ func (n *NodeInfo) Node() *v1.Node {
 
 func (n *NodeInfo) Clone() *NodeInfo {
 	clone := &NodeInfo{
-		node:       n.node,
-		Generation: n.Generation,
+		node:         n.node,
+		Generation:   n.Generation,
+		PVCRefCounts: make(map[string]int),
 	}
 	if len(n.Pods) > 0 {
 		clone.Pods = append([]*PodInfo(nil), n.Pods...)

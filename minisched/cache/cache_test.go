@@ -290,7 +290,7 @@ func TestDump(t *testing.T) {
 			for name, ni := range snapshot.Nodes {
 				nItem := cache.nodes[name]
 				if !reflect.DeepEqual(ni, nItem.info) {
-					t.Errorf("expect \n%+v, %T; got \n%+v, %T", nItem.info, nItem.info, ni, ni)
+					t.Errorf("expect \n%+v, %v; got \n%+v, %v", nItem.info, &nItem.info.Pods[0], ni, &ni.Pods[0])
 				}
 			}
 			if !reflect.DeepEqual(snapshot.AssumedPods, cache.assumedPods) {
@@ -891,7 +891,6 @@ func TestNodeOperators(t *testing.T) {
 				t.Errorf("failed to dump cached nodes:\n got: %v \nexpected: %v", cachedNodes, cache.nodes)
 			}
 			expected.Generation = newNode.Generation
-
 			if !reflect.DeepEqual(newNode, expected) {
 				t.Errorf("Failed to clone node:\n got: %+v, \n expected: %+v", newNode, expected)
 			}

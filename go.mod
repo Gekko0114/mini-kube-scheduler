@@ -33,6 +33,7 @@ replace (
 
 require (
 	github.com/golang/mock v1.4.4
+	github.com/google/go-cmp v0.5.5
 	github.com/google/uuid v1.1.2
 	github.com/stretchr/testify v1.7.0
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1
@@ -42,6 +43,7 @@ require (
 	k8s.io/apiserver v1.22.0
 	k8s.io/client-go v1.22.0
 	k8s.io/component-base v0.22.0
+	k8s.io/component-helpers v0.22.0
 	k8s.io/klog/v2 v2.9.0
 	k8s.io/kube-openapi v0.0.0-20210421082810-95288971da7e
 	k8s.io/kube-scheduler v1.22.0
@@ -79,7 +81,6 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
-	github.com/google/go-cmp v0.5.5 // indirect
 	github.com/google/gofuzz v1.1.0 // indirect
 	github.com/googleapis/gnostic v0.5.5 // indirect
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0 // indirect
@@ -145,7 +146,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 	k8s.io/cloud-provider v0.22.0 // indirect
 	k8s.io/cluster-bootstrap v0.0.0 // indirect
-	k8s.io/component-helpers v0.22.0 // indirect
 	k8s.io/csi-translation-lib v0.22.0 // indirect
 	k8s.io/kubelet v0.0.0 // indirect
 	k8s.io/mount-utils v0.22.0 // indirect

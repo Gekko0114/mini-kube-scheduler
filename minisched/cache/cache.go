@@ -39,18 +39,12 @@ type cacheImpl struct {
 	nodes       map[string]*nodeInfoListItem
 	headNode    *nodeInfoListItem
 	nodeTree    *nodeTree
-	imageStates map[string]*imageState
 }
 
 type podState struct {
 	pod             *v1.Pod
 	deadline        *time.Time
 	bindingFinished bool
-}
-
-type imageState struct {
-	size  int64
-	nodes sets.String
 }
 
 func newCache(ttl, period time.Duration, stop <-chan struct{}) *cacheImpl {
